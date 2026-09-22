@@ -2,14 +2,14 @@
 type: SystemDetails
 title: PL8 Entities
 description: Descriptions of PL8 entities
-generated: { by: human:dchen, at: 2026-09-12T00:00:00Z }
+generated: { by: human:dchen, at: 2026-09-22T00:00:00Z }
 ---
 
 # Entities
 ## Issue
 An Issue is the fundamental unit of work in PL8.
 An Issue:
-* SHOULD belong to a Space
+* MUST belong to a Space
 * MUST have a Status
 * MUST have a title and description
 
@@ -47,6 +47,7 @@ Spaces are places to group Issues.
 A Space:
 * MUST have an id, a name, and a description
 * MUST be enumerable together with every other Space
+* MUST track how many Issues belong to it (`issue_count`)
 
 ### Space ids
 A space id is supplied by the caller rather than generated, because it is what
@@ -59,12 +60,16 @@ Rules:
   `#` is excluded because it separates key groups.
 
 ### Referential integrity
-An Issue SHOULD belong to a Space, and PL8 does not enforce that it does.
-Callers are responsible for the relationship.
+An Issue MUST belong to a Space. A Space's `issue_count` is what enforces that,
+atomically with every write that could break it.
 
 Rules:
-* Creating an Issue MUST NOT require its Space to exist.
-* Deleting a Space MUST NOT delete or change the Issues in it. Those Issues
-  remain readable and queryable by their space id, and a Space recreated with
-  the same id takes them up again.
-* No Issue operation MAY be refused on the grounds that its Space is missing.
+* Creating an Issue MUST fail if its Space does not exist. The existence check
+  and the `issue_count` increment MUST be atomic with the Issue write.
+* Deleting an Issue MUST decrement its Space's `issue_count` atomically with the
+  delete.
+* Deleting a Space MUST fail while its `issue_count` is nonzero, whatever the
+  statuses of its Issues. Deleting a Space never deletes or changes Issues; the
+  caller deletes them first.
+* Maintaining `issue_count` MUST NOT change the Space's version, so a
+  version-fenced Space update is not failed by Issue writes in that Space.
