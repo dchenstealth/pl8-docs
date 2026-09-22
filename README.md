@@ -58,6 +58,10 @@ This repo follows the [OKF format](https://github.com/GoogleCloudPlatform/knowle
     * Component: Logical groupings within a container. Example: set of AWS lambda functions
     * Code: Not tracked in this repo (code-level docs belong in the repos)
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 [MIT](LICENSE)
