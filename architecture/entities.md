@@ -66,9 +66,11 @@ what carries the comment's position in the Issue's history.
 
 Rules:
 * A comment id MUST be a UUIDv7.
-* A comment id MUST be generated from the same instant as the comment's
-  creation timestamp, so the two can never disagree about when the comment was
-  written.
+* A comment's creation timestamp MUST be the one its id carries, read back out
+  of the id rather than taken from a second reading of the clock, so the two
+  can never disagree about when the comment was written. A UUIDv7 is minted
+  from the clock and cannot be asked to carry a timestamp chosen for it, so
+  this is the direction that keeps them in step.
 * Creating an IssueComment MUST fail rather than replace a comment whose id is
   already in use. A UUIDv7 collision is not a case to reroll past, unlike an
   issue id collision; it is a signal that ids are not being generated the way
@@ -79,11 +81,17 @@ IssueComments are ordered by creation timestamp, oldest first.
 
 Rules:
 * An Issue's IssueComments MUST be enumerable together, in creation order.
-* Ordering MUST be by comment id. Because the id is a UUIDv7 drawn from the
-  creation timestamp, ordering by id *is* ordering by creation timestamp:
-  UUIDv7 leads with its timestamp, so ids sort in the order they were minted.
-  Comments minted within the same millisecond are ordered arbitrarily but
-  stably, by the random part of the id.
+* Ordering MUST be by comment id. A UUIDv7 leads with its millisecond
+  timestamp, and a comment's creation timestamp is that same timestamp, so
+  ordering by id *is* ordering by creation timestamp.
+* Ordering within one millisecond is only as good as what minted the ids. A
+  UUIDv7 generator that counts within each millisecond, as Python's does, puts
+  comments minted by one process in the order they were written even when the
+  clock has not ticked. Two processes minting in the same millisecond are
+  ordered arbitrarily, and a clock that disagrees with its peers orders its
+  comments by its own reading of the time. None of this is worth coordinating
+  to fix: it decides the order of comments written within a millisecond of each
+  other, which no reader of a thread is relying on.
 * Ordering MUST NOT be by an updated timestamp. Editing a comment does not
   move it in the thread.
 
