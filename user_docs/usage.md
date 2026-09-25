@@ -2,7 +2,7 @@
 type: UserGuide
 title: PL8 Usage
 description: Use PL8 from the CLI, from agents, and through its events
-generated: { by: agent:claude-opus-5, at: 2026-09-22T00:00:00Z }
+generated: { by: agent:claude-opus-5, at: 2026-09-24T00:00:00Z }
 ---
 
 # Usage
@@ -22,15 +22,21 @@ This guide assumes you have [set up](setup.md) PL8 and can run
 * **Blocker**: "Issue A blocks Issue B". Blockers can cross Spaces. While B
   has unfinished blockers it stays `BLOCKED`, and PL8 moves it back to
   `TODO` when they are all finished.
+* **Comment**: a note on an Issue, for discussion or for recording what an
+  agent did. PL8 generates its id. Comments are listed oldest first, and are
+  deleted along with the Issue they are on.
+* **Creator**: a label naming who made a Space, Issue or Comment, which you
+  set when you create it. PL8 records it and never checks it.
 
 The full rules are in [Entities](../architecture/entities.md).
 
 ## A quick tour
 
-Set your environment and a default Space, so you can use bare Issue ids:
+Set your environment, a default Space so you can use bare Issue ids, and the
+creator to record on what you create:
 
 ```bash
-export PL8_ENV=prod PL8_SPACE=ENG
+export PL8_ENV=prod PL8_SPACE=ENG PL8_CREATOR=alice
 ```
 
 Create the Space, then add Issues to it:
@@ -53,7 +59,14 @@ Work on the schema, then finish it:
 
 ```bash
 pl8 issue transition "$schema" --status IN_PROGRESS
+pl8 comment add "$schema" --body "Went with a single-table design."
 pl8 issue transition "$schema" --status DONE
+```
+
+Anyone picking the work up can read the thread, oldest note first:
+
+```bash
+pl8 comment list "$schema"
 ```
 
 A few seconds later, PL8 moves the API Issue back to `TODO` on its own:
@@ -81,6 +94,12 @@ pl8 issue update ISSUE --title TITLE --description TEXT [--if-version N]
 pl8 issue transition ISSUE --status STATUS [--if-version N]
 pl8 issue delete ISSUE
 
+pl8 comment add ISSUE --body TEXT
+pl8 comment get ISSUE COMMENT_ID
+pl8 comment list ISSUE
+pl8 comment update ISSUE COMMENT_ID --body TEXT [--if-version N]
+pl8 comment delete ISSUE COMMENT_ID
+
 pl8 blocker add --blocking ISSUE --blocked ISSUE
 pl8 blocker remove --blocking ISSUE --blocked ISSUE
 pl8 blocker list (--blocked ISSUE | --blocking ISSUE)
@@ -92,16 +111,28 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
   that takes its Space from `--space` or `PL8_SPACE`. A Space written in the
   reference always wins, so blockers across Spaces need nothing extra:
   `pl8 blocker add --blocking OPS/k8s123 --blocked abc456`.
+* **Comment references.** A comment is named by its Issue and then its
+  `COMMENT_ID`, as two separate arguments rather than one `/`-joined
+  reference: `pl8 comment delete ENG/abc123 0199f3a1-...`. The `ISSUE` part
+  is an ordinary Issue reference, so it can be bare.
+* **Creator.** `space create`, `issue create` and `comment add` record who
+  created the item. Set `PL8_CREATOR` once in your environment, or pass
+  `--creator WHO` on the command. PL8 stores the label and never checks it,
+  so it says who *claims* to have created something; see
+  [Rules to know](#rules-to-know).
 * **Long text.** Use `--description-file PATH` in place of `--description`
   to read a description from a file, or `--description-file -` to read it
-  from stdin. This avoids shell quoting problems.
+  from stdin. `comment add` and `comment update` take `--body-file` the same
+  way. This avoids shell quoting problems.
 * **Lists.** Every list returns `{"items": [...], "cursor": ...}`. Pass the
   cursor back with `--cursor` to get the next page, set the page size with
   `--limit` (1-100, default 50), or use `--all` to fetch every page.
   `pl8 issue list` returns the Issues in one status, with the Issue that has
-  been in that status longest first.
+  been in that status longest first. `pl8 comment list` returns one Issue's
+  comments, oldest first.
 * **Updates.** `update` replaces both the name or title and the description,
-  so pass both.
+  so pass both. `comment update` replaces the body. An update never changes
+  the creator.
 * **Raw operations.** `pl8 invoke` sends any operation with JSON params,
   for operations that don't have a subcommand yet.
 
@@ -113,7 +144,15 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
   finish or delete its blockers, or remove them with `pl8 blocker remove`.
 * An Issue that is `DONE` can't be added as a blocker, and an Issue can't
   block itself.
-* Delete a Space's Issues before deleting the Space.
+* Delete a Space's Issues before deleting the Space. Comments are the other
+  way round: deleting an Issue deletes its comments for you, however many it
+  has.
+* You can comment on an Issue in any status, including `DONE`. `DONE` stops
+  an Issue moving to another status; it doesn't close the discussion.
+* The creator is a label, not a login. PL8 doesn't verify it against your AWS
+  identity, nothing stops two callers using the same one, and no command is
+  allowed or refused on the basis of it. Use it to see who did what, not to
+  control who may do what — for that, use IAM.
 * Blocking cycles (A blocks B, and B blocks A) are allowed but deadlock both
   Issues. Remove one of the blockers to break the cycle.
 
@@ -124,15 +163,16 @@ caused them:
 
 * When a blocking Issue becomes `DONE` or is deleted, the Issues it blocked
   return to `TODO` once they have no other unfinished blockers.
-* When an Issue is deleted, the blockers that name it are removed.
+* When an Issue is deleted, the blockers that name it are removed, and so are
+  its comments.
 
 If a background change never happens, see
 [Monitoring](setup.md#monitoring).
 
 ### Concurrent edits
 
-Each Space and Issue has a `version` that increases on every write. To
-avoid overwriting someone else's change, pass the version you last read:
+Each Space, Issue and comment has a `version` that increases on every write.
+To avoid overwriting someone else's change, pass the version you last read:
 
 ```bash
 pl8 issue update ENG/abc123 --title "..." --description "..." --if-version 3
@@ -175,14 +215,18 @@ an agent access to PL8:
 1. Give the agent AWS credentials with only `lambda:InvokeFunction` on your
    interface function (see [Grant access](setup.md#2-grant-access)).
 2. Set `PL8_ENV`, and `PL8_SPACE` if the agent works in one Space, in the
-   agent's environment.
+   agent's environment. Set `PL8_CREATOR` too, to a name for that agent: give
+   each agent its own, and a thread of comments tells you which agent wrote
+   what.
 3. Tell the agent to use `pl8` and to read `pl8 --help` and
    `pl8 <command> <subcommand> --help` for details. For example:
 
    > Track your work in PL8 with the `pl8` CLI. Run `pl8 --help` to learn
    > the commands. Pick up Issues from `pl8 issue list --status TODO`, move
    > an Issue to `IN_PROGRESS` before you start it and to `DONE` when you
-   > finish it, and record dependencies with `pl8 blocker add`.
+   > finish it, and record dependencies with `pl8 blocker add`. Leave what
+   > you learned on the Issue with `pl8 comment add`, and read
+   > `pl8 comment list` before starting work someone else has touched.
 
 ## Reacting to events
 

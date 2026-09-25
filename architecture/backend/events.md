@@ -2,7 +2,7 @@
 type: ComponentDetails
 title: PL8 Events
 description: Events sent by PL8
-generated: { by: human:dchen, at: 2026-09-19T00:00:00Z }
+generated: { by: agent:claude-opus-5, at: 2026-09-24T00:00:00Z }
 ---
 
 # PL8 events
@@ -18,7 +18,7 @@ Events:
 * IssueDeleted:
   * Core lifecycle event
   * Sent when Issue is deleted
-  * Triggers cleanup of linked IssueBlockers
+  * Triggers cleanup of linked IssueBlockers and of the Issue's IssueComments
 * IssueDone:
   * Core lifecycle event
   * Sent when an Issue is transitioned to status=DONE

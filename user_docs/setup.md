@@ -212,6 +212,7 @@ A new deployment returns `{"ok": true, "data": {"items": [], "cursor": null}}`.
 | Environment (invokes `<ENV>-pl8-interface`) | `--env ENV` | `PL8_ENV` |
 | Function name or ARN, instead of an environment | `--function-name NAME` | `PL8_FUNCTION_NAME` |
 | Default Space for bare Issue ids | `--space SPACE` | `PL8_SPACE` |
+| Creator recorded on what you create | `--creator WHO` | `PL8_CREATOR` |
 | AWS credentials and region | `--profile`, `--region` | Standard AWS chain (`AWS_PROFILE`, `AWS_REGION`, `~/.aws/config`, ...) |
 
 Flags take precedence over environment variables, and a function name takes
