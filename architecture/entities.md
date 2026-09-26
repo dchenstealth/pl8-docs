@@ -2,7 +2,7 @@
 type: SystemDetails
 title: PL8 Entities
 description: Descriptions of PL8 entities
-generated: { by: agent:claude-opus-5, at: 2026-09-24T00:00:00Z }
+generated: { by: agent:claude-opus-5, at: 2026-09-26T00:00:00Z }
 ---
 
 # Entities
@@ -30,6 +30,7 @@ An Issue:
 * MUST have a title and description
 * MUST have a [creator](#creator)
 * MUST track how many IssueComments it has (`num_comments`)
+* MUST track how many uploaded IssueAttachments it has (`num_attachments`)
 
 ### Status
 A Status indicates what state an Issue is in. There are four Statuses:
@@ -48,6 +49,8 @@ An IssueComment:
 * MUST belong to an Issue, and so to that Issue's Space
 * MUST have a body
 * MUST have a [creator](#creator)
+* MUST track how many uploaded IssueAttachments are linked to it
+  (`num_attachments`)
 * MAY be updated or deleted
 
 An IssueComment is the Issue's, not the Space's: it is named by the Space and
@@ -77,10 +80,14 @@ Rules:
   this rule assumes.
 
 ### Ordering
-IssueComments are ordered by creation timestamp, oldest first.
+IssueComments are ordered by creation timestamp. A listing returns them oldest
+first unless it asks for the reverse: oldest first is the default direction, not
+the order the thread has.
 
 Rules:
-* An Issue's IssueComments MUST be enumerable together, in creation order.
+* An Issue's IssueComments MUST be enumerable together, in creation order,
+  ascending or descending. Direction chooses which end of the thread a caller
+  reads from; it does not change what the order is.
 * Ordering MUST be by comment id. A UUIDv7 leads with its millisecond
   timestamp, and a comment's creation timestamp is that same timestamp, so
   ordering by id *is* ordering by creation timestamp.
@@ -89,9 +96,17 @@ Rules:
   comments minted by one process in the order they were written even when the
   clock has not ticked. Two processes minting in the same millisecond are
   ordered arbitrarily, and a clock that disagrees with its peers orders its
-  comments by its own reading of the time. None of this is worth coordinating
-  to fix: it decides the order of comments written within a millisecond of each
-  other, which no reader of a thread is relying on.
+  comments by its own reading of the time. This is accepted rather than
+  coordinated away, but it is not equally harmless to everyone reading. For a
+  reader of a thread, a comment that sorts before its same-millisecond sibling
+  is merely mis-ordered, and both are in front of them either way. For a caller
+  polling an Issue by taking its next cursor from the last id of a batch, a
+  sibling that sorts before that id is not mis-ordered but skipped: it is
+  already behind the cursor, so it will never be returned, and a mis-ordered
+  comment becomes a dropped one. The last id of a batch is therefore not a
+  watermark, and a poller that cannot afford to lose a comment overlaps its
+  windows — resumes from slightly behind the last id and discards what it has
+  already seen — rather than trusting that nothing can land before it.
 * Ordering MUST NOT be by an updated timestamp. Editing a comment does not
   move it in the thread.
 
@@ -120,6 +135,228 @@ Rules:
 * Maintaining `num_comments` MUST NOT change the Issue's version, so a
   version-fenced Issue update is not failed by comments being added to or
   removed from that Issue.
+
+## IssueAttachment
+An IssueAttachment is a file attached to an Issue: a log, a screenshot, a
+patch, anything too large or too binary to paste into a comment.
+An IssueAttachment:
+* MUST belong to an Issue, and so to that Issue's Space
+* MAY be linked to one IssueComment of that Issue
+* MUST have a name, a content type and a size in bytes
+* MUST have a Status
+* MUST have a [creator](#creator)
+* MAY be deleted
+
+An IssueAttachment is two things kept in step: a row in DynamoDB, which is the
+entity described here, and an object in S3, which holds the bytes. The row is
+the attachment; the object is what the row points at. Everything about the
+bucket, the key the row's id implies, and the three steps that put bytes there
+is in [storage](backend/storage.md).
+
+An IssueAttachment is the Issue's, not the IssueComment's: it is named by the
+Space and Issue it belongs to, and it cannot be moved between Issues. It MAY
+additionally name one IssueComment of that same Issue, to record that it was
+attached as part of that comment. The link is fixed at creation: an attachment
+cannot be re-linked to a different comment, and one created without a link
+cannot acquire one later. Re-linking would not relabel a row, it would move it
+between lifetimes — an attachment linked to a comment dies with that comment
+(see Referential integrity below), so the link decides when the row and its
+object cease to exist.
+
+Nothing about an IssueAttachment is updatable by a caller. Its name, creator,
+link and creation timestamp are fixed at creation, and the only fields that ever
+change are the ones the confirm step writes: its status, and the size and
+content type it reads back out of S3.
+
+### Attachment ids
+An attachment id is generated by PL8 rather than supplied by the caller. It
+carries the attachment's position in the Issue's history, and it is also what
+names the attachment's object in S3.
+
+Rules:
+* An attachment id MUST be a UUIDv7.
+* An attachment's creation timestamp MUST be the one its id carries, read back
+  out of the id rather than taken from a second reading of the clock, so the two
+  can never disagree about when the attachment was created. A UUIDv7 is minted
+  from the clock and cannot be asked to carry a timestamp chosen for it, so this
+  is the direction that keeps them in step. This is the same rule, for the same
+  reason, that [comment ids](#comment-ids) follow.
+* Creating an IssueAttachment MUST fail rather than replace an attachment whose
+  id is already in use. As with a comment id, a UUIDv7 collision is not a case
+  to reroll past; it is a signal that ids are not being generated the way this
+  rule assumes. Here it is also not only a row that would be replaced: two rows
+  with one id name one S3 key, so the second attachment's upload would overwrite
+  the first attachment's bytes, and the surviving row would describe a file
+  nobody attached to it.
+
+### Name, content type and size
+Rules:
+* A name MUST be a non-empty string of at most 128 characters. It is a label for
+  whoever reads the Issue, and it never composes a key — the S3 key is built
+  from the attachment id, not the name — so a name need not be unique within an
+  Issue and its characters are otherwise unconstrained.
+* A content type and a size in bytes MUST be present whatever the attachment's
+  status. On a PENDING attachment they are what the caller declared when it
+  initiated the upload; on an UPLOADED one they are what S3 reported when the
+  upload was confirmed.
+* A declared size MUST be at most 100MB, and the limit MUST be enforced on the
+  upload rather than only on the declaration: the presigned POST carries the
+  declared size as an exact content-length-range, so S3 rejects an upload of any
+  other size (see [storage](backend/storage.md)). Checking only at initiate
+  would let a caller declare one size and upload another, and the size on the
+  row would then be a claim contradicted by the object PL8 is storing.
+
+### Ordering
+IssueAttachments are ordered by creation timestamp, oldest first by default.
+
+Rules:
+* An Issue's IssueAttachments MUST be enumerable together, and an
+  IssueComment's IssueAttachments MUST be enumerable together, in either
+  direction. An attachment linked to a comment appears in both listings.
+* Ordering MUST be by attachment id. A UUIDv7 leads with its millisecond
+  timestamp, and an attachment's creation timestamp is that same timestamp, so
+  ordering by id *is* ordering by creation timestamp. The caveat about ordering
+  within one millisecond in [IssueComment's Ordering](#ordering) applies here
+  unchanged, and so does what it means for a poller.
+* Ordering MUST NOT be by when an upload was confirmed. An attachment takes its
+  place from when it was created, so a 100MB file does not sort behind a
+  one-line one that was attached after it.
+* A listing MUST return attachments whatever their status. PENDING rows are
+  part of the Issue's state, and a caller that wants only the attachments it can
+  actually fetch filters on status itself.
+
+Deriving the order from the id, rather than from a separate timestamp, is what
+keeps an attachment addressable from its id alone, exactly as it does for a
+comment — and the id is already the one thing a caller must know to fetch the
+object.
+
+### Status
+A Status says whether an IssueAttachment's bytes are there. There are two
+Statuses:
+* PENDING
+* UPLOADED
+
+A PENDING attachment MAY have no object behind it: the row is written before the
+caller uploads anything, and a caller that never uploads leaves it that way. An
+UPLOADED attachment has been verified to exist — the confirm step does a HEAD
+against S3 and writes the size and content type S3 reports back onto the row.
+
+### Status lifecycle rules
+* An IssueAttachment MUST be created PENDING. A caller MUST NOT be able to
+  supply a status.
+* PENDING -> UPLOADED MUST be the only transition. An IssueAttachment MUST NOT
+  transition from UPLOADED back to PENDING, and MUST NOT be created UPLOADED.
+* Confirming MUST verify that the object exists before writing UPLOADED, and
+  MUST write the size and content type S3 reports onto the row, replacing what
+  the caller declared.
+* The write that sets UPLOADED MUST be conditional on the row's status being
+  PENDING, and MUST be atomic with the `num_attachments` increments it drives.
+
+The one-way transition is not a product opinion about what people may do with a
+file; it is what makes `num_attachments` correct. Confirm arrives at least once
+and may arrive many times — a caller retries a timeout, a Lambda is redelivered,
+an agent runs the same step twice — and each delivery would otherwise increment
+the counters again. The `status = PENDING` condition is what stops it: the first
+confirm consumes the condition, and every later one fails it and increments
+nothing. The condition is doing double duty, as a state check and as the durable
+record that the increment has already happened, and it can only do the second
+job while UPLOADED is a state nothing can leave. A transition back to PENDING
+would re-arm the condition and let a replayed confirm count the same attachment
+twice. This is the same argument IssueStatus.DONE's docstring makes about
+`is_blocking_issue_done`: a terminal status is what turns an at-least-once
+delivery into an exactly-once counter update, so making the status terminal is
+load-bearing rather than restrictive.
+
+A status is therefore not a caller's claim, and this is where it parts company
+with [creator](#creator). A creator is whatever the caller says it is; PL8
+stores it, verifies nothing, and enforces nothing on the basis of it. A status
+is set by PL8 alone, and UPLOADED means PL8 went and looked: it is a
+measurement, not an assertion. A caller cannot declare an attachment UPLOADED,
+and cannot reach that status except by putting bytes somewhere the confirm step
+can find them. The size and content type a caller declares at initiate *are*
+claims, which is exactly why confirm overwrites both with what S3 reports —
+everything an UPLOADED row says about the file is something PL8 observed.
+
+### Expiry
+A PENDING IssueAttachment expires. Every upload that is initiated and never
+confirmed would otherwise leave a row forever, and possibly an object nobody
+can reach through it.
+
+Rules:
+* A PENDING row MUST carry a TTL 24 hours after its creation.
+* Confirming MUST clear the TTL, atomically with the transition to UPLOADED. An
+  UPLOADED attachment MUST NOT carry one.
+* Expiry MUST reap the object as well as the row. The row's removal sends
+  IssueAttachmentDeleted however it was removed, including by TTL, and that
+  event is what deletes the object (see [events](backend/events.md)). An expiry
+  is the only thing that reclaims bytes uploaded to a presigned target and never
+  confirmed, since nothing else knows they are there.
+* Expiring a PENDING row MUST NOT touch `num_attachments`. A PENDING attachment
+  was never counted, so there is nothing to decrement, and expiry is a delete
+  like any other in that respect.
+* Confirming an expired attachment MUST fail. The condition finds no row, so a
+  confirm that arrives after the reaper cannot resurrect one; the caller
+  initiates again.
+
+24 hours is a floor, not a deadline: DynamoDB deletes expired items on its own
+schedule rather than at the instant the TTL passes, so a PENDING row may outlive
+its TTL by some hours. Nothing depends on the delay being short — a PENDING row
+holds no counter and blocks nothing — which is why a TTL is enough here and a
+sweep is not needed.
+
+### Referential integrity
+No IssueAttachment may outlive the Issue it belongs to or the IssueComment it is
+linked to, and none may be created naming an Issue or an IssueComment that is
+not there. Unlike IssueComment and Issue, or Issue and Space, no counter
+enforces any of that.
+
+Rules:
+* Creating an IssueAttachment MUST fail if its Issue does not exist, and MUST
+  fail if it names an IssueComment that does not exist. Both checks MUST be
+  atomic with the attachment write.
+* Those checks MUST be bare conditions on the existence of the owning rows, not
+  counter increments. This is a deliberate departure from the pattern the rest
+  of this document establishes, where the owner's counter is both the existence
+  check and the bookkeeping, in one atomic write. It cannot be that here because
+  `num_attachments` counts UPLOADED attachments only: the counters move at
+  confirm, and at creation there is nothing to increment.
+* A reader MUST NOT treat an owner's `num_attachments` as a census of its
+  children, the way it may treat `num_comments` or `issue_count`. An Issue or
+  IssueComment whose `num_attachments` is 0 may still have PENDING
+  IssueAttachments. Whatever needs to know whether an owner has attachments at
+  all MUST enumerate them.
+* Confirming an IssueAttachment MUST increment `num_attachments` on its Issue,
+  and on its IssueComment if it names one, atomically with the transition to
+  UPLOADED.
+* Deleting an UPLOADED IssueAttachment MUST decrement the same counters
+  atomically with the delete. Deleting a PENDING one MUST NOT decrement
+  anything.
+* Maintaining `num_attachments` MUST NOT change the owner's version, so a
+  version-fenced Issue or IssueComment update is not failed by attachments being
+  confirmed or deleted on it. This is the rule `num_comments` and `issue_count`
+  follow, for the same reason: a counter the owner does not control must not
+  invalidate the owner's optimistic writes.
+* Deleting an IssueComment MUST delete the IssueAttachments linked to it.
+  Deleting an Issue MUST delete every one of its IssueAttachments, linked to a
+  comment or not.
+* Deleting an Issue or an IssueComment MUST NOT be gated on
+  `num_attachments`, exactly as deleting an Issue is not gated on
+  `num_comments`. A Space refuses to be deleted while it holds Issues; an Issue
+  and an IssueComment take their attachments with them.
+* Both cascades MAY be asynchronous, after the Issue or the IssueComment is
+  gone, driven by IssueDeleted and IssueCommentDeleted (see
+  [events](backend/events.md)). Each sweep MUST see every attachment that was
+  created: an IssueAttachment cannot be created once its Issue or its linked
+  IssueComment is gone, because the creation condition fails, so the set is
+  closed by the time the sweep runs — but the sweep MUST read consistently
+  rather than rely on an eventually-consistent view of it.
+* Deleting an IssueAttachment row MUST delete its S3 object. The row goes first
+  and the object follows, driven by IssueAttachmentDeleted. The order matters:
+  if the second step is lost, the failure is an object nobody can reach through
+  any row, which costs storage and nothing else, whereas deleting the object
+  first would leave an UPLOADED row promising bytes that are not there. An
+  UPLOADED attachment is a statement that PL8 checked; it must not be allowed to
+  become false.
 
 ## IssueBlocker
 Represents a blocking relationship between two Issues. Issues MAY have
