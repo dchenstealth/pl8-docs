@@ -115,6 +115,23 @@ Rules:
   usually has no object behind it, so the delete is routinely a no-op and MUST
   treat a missing key as success.
 
+A row is sometimes swept twice and the object still goes once. Deleting an Issue
+runs two sweeps across the same attachment: the IssueDeleted handler deletes
+every attachment in the Issue's partition, and the IssueCommentDeleted handler
+for each of that Issue's comments deletes the attachments linked to that
+comment. Only one of them can actually remove the row, and
+IssueAttachmentDeleted is sent from the removal rather than by either handler,
+so two sweeps still ask for one object delete. The reasoning for the row itself
+is in [entities](../entities.md).
+
+What matters on this side is that the ask is idempotent anyway. A DeleteObject
+for a key that is not there succeeds, which is what the rule above requires
+handling, and a second DeleteObject for a key already deleted succeeds too — in
+a versioned bucket it writes another delete marker rather than failing, and that
+marker is itself a noncurrent version, so the 7-day rule clears it. Nothing in
+the cascade needs an event to arrive exactly once, which is the only reason it
+can be built on a bus that promises at least once.
+
 ## Versioning
 The bucket has versioning enabled, with noncurrent versions expiring after 7
 days.

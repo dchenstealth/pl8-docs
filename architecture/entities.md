@@ -350,6 +350,9 @@ Rules:
   IssueComment is gone, because the creation condition fails, so the set is
   closed by the time the sweep runs — but the sweep MUST read consistently
   rather than rely on an eventually-consistent view of it.
+* Each sweep MUST delete conditionally and MUST treat an attachment row that is
+  already gone as success. The two cascades overlap, so a sweep that finds
+  nothing to delete is the normal case rather than a fault.
 * Deleting an IssueAttachment row MUST delete its S3 object. The row goes first
   and the object follows, driven by IssueAttachmentDeleted. The order matters:
   if the second step is lost, the failure is an object nobody can reach through
@@ -357,6 +360,30 @@ Rules:
   first would leave an UPLOADED row promising bytes that are not there. An
   UPLOADED attachment is a statement that PL8 checked; it must not be allowed to
   become false.
+
+The two cascades race on the same row, and that is worth spelling out, because
+anyone reading the two handlers side by side will assume they conflict. Deleting
+an Issue deletes every IssueAttachment in the Issue's partition; the same
+deletion also removes the Issue's IssueComments, and each of those sends
+IssueCommentDeleted, whose sweep deletes the attachments linked to that comment.
+An attachment that names a comment is therefore swept twice, by two handlers, at
+once.
+
+Nothing has to arbitrate between them. Both sweeps delete conditionally and
+tolerate the row already being gone, so whichever loses the race is a no-op
+rather than an error, and neither handler has to know the other exists. The
+object is still deleted exactly once: IssueAttachmentDeleted is sent from the
+row's removal rather than by either handler, and DynamoDB emits exactly one
+removal per row however many writers attempted it, so two sweeps of one
+attachment produce one event. And deleting the object is itself idempotent, so
+even a redelivered event costs nothing (see [storage](backend/storage.md)).
+
+That last point is what makes the cascade safe under at-least-once delivery, and
+it is the same shape of argument the IssueBlocker rules and
+`num_active_blockers` rest on: what makes an effect happen once is a write that
+can only succeed once,
+or an operation that does not care how often it runs — never an assumption about
+how often an event is delivered or a handler runs.
 
 ## IssueBlocker
 Represents a blocking relationship between two Issues. Issues MAY have
