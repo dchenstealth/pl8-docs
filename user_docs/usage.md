@@ -92,7 +92,7 @@ enforces.
 pl8 space create SPACE_ID --name NAME --description TEXT
 pl8 space get SPACE_ID
 pl8 space list
-pl8 space update SPACE_ID --name NAME --description TEXT [--if-version N]
+pl8 space update SPACE_ID [--name NAME] [--description TEXT] [--if-version N]
 pl8 space delete SPACE_ID
 
 pl8 issue create --title TITLE --description TEXT [--status STATUS]
@@ -147,10 +147,9 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
   comments and `pl8 attachment list` its attachments, or one comment's
   attachments with `--comment`. Both list oldest first, and both take `--desc`
   for newest first.
-* **Updates.** `space update` replaces both the name and the description, so
-  pass both. `issue update` replaces the title, the description, or both, and
-  leaves whichever you omit unchanged. `comment update` replaces the body. An
-  update never changes the creator.
+* **Updates.** `space update` and `issue update` replace the name or title,
+  the description, or both, and leave whichever you omit unchanged.
+  `comment update` replaces the body. An update never changes the creator.
 * **Attachments.** `pl8 attachment add` is one command for what is really
   three steps: PL8 reserves the attachment and signs an upload, the CLI sends
   the file to S3, and PL8 marks it uploaded. The size is taken from the file
