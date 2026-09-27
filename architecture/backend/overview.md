@@ -2,7 +2,7 @@
 type: ComponentOverview
 title: PL8 Backend Overview
 description: Component overview of PL8 backend
-generated: { by: human:dchen, at: 2026-09-19T00:00:00Z }
+generated: { by: agent:claude-opus-5, at: 2026-09-26T00:00:00Z }
 ---
 
 # Backend overview
@@ -20,3 +20,10 @@ See [Events](events.md).
 
 ## pl8-event-handler lambda
 Applies async entity lifecycle updates.
+
+## Stores
+DynamoDB holds every entity and is the source of truth.
+One S3 bucket holds IssueAttachment objects; the rows that describe them stay in
+DynamoDB. pl8-interface signs the URLs callers upload through, and
+pl8-event-handler deletes objects when their rows go away.
+See [Storage](storage.md).

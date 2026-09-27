@@ -2,7 +2,7 @@
 type: UserGuide
 title: PL8 Setup
 description: Deploy PL8 to your own AWS account and install the CLI
-generated: { by: agent:claude-opus-5, at: 2026-09-22T00:00:00Z }
+generated: { by: agent:claude-opus-5, at: 2026-09-26T00:00:00Z }
 ---
 
 # Setup
@@ -119,6 +119,19 @@ This creates:
     lifecycle updates in the background
 * An EventBridge bus, `prod-pl8-events`, plus SQS queues with dead-letter
   queues and CloudWatch alarms on those dead-letter queues
+* An S3 bucket, `prod-pl8-bucket-<account-id>-us-east-1-an`, which holds the
+  files attached to Issues. Attachment rows live in the table with everything
+  else; only the bytes are here. The account id and region are in the name
+  because S3 bucket names are globally unique across all of AWS, unlike a
+  DynamoDB table or an event bus, which only have to be unique in your own
+  account and region.
+
+The attachment bucket has versioning enabled, with noncurrent versions expiring
+after 7 days. Deleting an attachment, or deleting an Issue and taking its
+attachments with it, therefore does not stop you paying for those bytes
+immediately: the old version is kept for up to a week first. It is worth knowing
+before you read a cost graph, and it is also a week in which an accidental
+delete can still be recovered from the bucket.
 
 ### Verify
 
@@ -256,11 +269,31 @@ Only Lambdas whose code changed are redeployed. Upgrade the CLI with
 
 ## Removing PL8
 
-**This permanently deletes all of your PL8 data.** The table has deletion
-protection enabled, so turn it off first:
+**This permanently deletes all of your PL8 data.** Two resources hold data and
+refuse to be destroyed while they do, so clear them first.
+
+The table has deletion protection enabled, so turn it off:
 
 ```bash
 aws dynamodb update-table --table-name prod-pl8-table --no-deletion-protection-enabled
+```
+
+The attachment bucket has no `force_destroy`, deliberately, because what is in
+it came from your callers rather than from PL8. OpenTofu will refuse to delete
+the bucket while anything is in it, so empty it yourself — and note that
+emptying a *versioned* bucket is not what it sounds like.
+`aws s3 rm --recursive` deletes the current objects by writing a delete marker
+over each one, which leaves both the marker and the version underneath it in
+place, and the destroy still fails. What has to go is every version and every delete
+marker: list them with `aws s3api list-object-versions` and feed them to
+`aws s3api delete-objects`. The alternative is to wait out the 7-day noncurrent
+expiry, which only starts counting once a version becomes noncurrent — the week
+that protects you from an accidental delete is the same week standing between
+you and an empty bucket.
+
+Then destroy the deployment:
+
+```bash
 cd infra
 tofu destroy \
   -var-file tfvars/prod.tfvars \

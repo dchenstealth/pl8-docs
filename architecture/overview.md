@@ -9,7 +9,8 @@ generated: { by: human:dchen, at: 2026-09-08T00:00:00Z }
 PL8 is a lightweight issue tracking system backed by DynamoDB.
 
 ## Architecture
-PL8 is hosted in AWS, backed by DynamoDB, EventBridge, SQS, and AWS Lambda.
+PL8 is hosted in AWS, backed by DynamoDB, S3, EventBridge, SQS, and AWS
+Lambda.
 
 ## Events
 PL8 sends EventBridge events on specific entity lifecycle changes.
