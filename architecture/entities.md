@@ -194,11 +194,25 @@ Rules:
 * A name MUST be a non-empty string of at most 128 characters. It is a label for
   whoever reads the Issue, and it never composes a key — the S3 key is built
   from the attachment id, not the name — so a name need not be unique within an
-  Issue and its characters are otherwise unconstrained.
+  Issue.
+* A name MUST NOT contain a C0 control character, DEL, `"` or `\`. Those four
+  exclusions are not cosmetic: a name is not inert. A download URL is signed
+  with a `ResponseContentDisposition` header that carries the name in a quoted
+  string, so a quote or a backslash in a name is a chance to break out of that
+  value, and a control character is a chance to break the header. Everything
+  else, including spaces and non-ASCII text, is allowed — what makes the header
+  safe is that the name was validated on the way in, not that it is never
+  interpolated.
 * A content type and a size in bytes MUST be present whatever the attachment's
   status. On a PENDING attachment they are what the caller declared when it
   initiated the upload; on an UPLOADED one they are what S3 reported when the
   upload was confirmed.
+* A content type MUST be a bare media type, with no parameters: `text/plain` is
+  accepted and `text/plain; charset=utf-8` is not. A content type reaches a
+  signed header too, and a parameter brings quoting rules of its own into a
+  value PL8 would then have to escape rather than validate. An UPLOADED
+  attachment's content type is therefore always a bare media type, whatever a
+  caller declared.
 * A declared size MUST be at most 100MB, and the limit MUST be enforced on the
   upload rather than only on the declaration: the presigned POST carries the
   declared size as an exact content-length-range, so S3 rejects an upload of any
@@ -251,6 +265,10 @@ against S3 and writes the size and content type S3 reports back onto the row.
   the caller declared.
 * The write that sets UPLOADED MUST be conditional on the row's status being
   PENDING, and MUST be atomic with the `num_attachments` increments it drives.
+* Signing a fresh upload target for a PENDING attachment MUST leave the row
+  alone, and MUST fail once the attachment is UPLOADED (see
+  [storage](backend/storage.md)). A new target is a new token for the same
+  intention, not a new attachment and not an amendment to one.
 
 The one-way transition is not a product opinion about what people may do with a
 file; it is what makes `num_attachments` correct. Confirm arrives at least once
@@ -297,6 +315,9 @@ Rules:
 * Confirming an expired attachment MUST fail. The condition finds no row, so a
   confirm that arrives after the reaper cannot resurrect one; the caller
   initiates again.
+* A TTL MUST NOT be extended. In particular, signing a fresh upload target for a
+  PENDING attachment MUST leave its TTL where it was: the 24 hours are measured
+  from creation, and retrying an upload does not buy a longer reservation.
 
 24 hours is a floor, not a deadline: DynamoDB deletes expired items on its own
 schedule rather than at the instant the TTL passes, so a PENDING row may outlive

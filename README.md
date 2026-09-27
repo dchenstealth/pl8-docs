@@ -19,13 +19,14 @@ PL8 is **BYOC (bring your own cloud)**. There is no hosted PL8 service to sign
 up for. You deploy PL8 into your own AWS account, and:
 
 * **Your data stays in your account.** Issues are stored in a DynamoDB table
-  you own. Nothing is sent to a third party.
+  you own, attachments in an S3 bucket you own. Nothing is sent to a third
+  party.
 * **Access is plain AWS IAM.** There are no separate PL8 users or API keys.
   Anyone (or any agent) with `lambda:InvokeFunction` on your PL8 function can
   use it.
 * **You pay AWS directly.** PL8 is fully serverless (DynamoDB on-demand,
-  Lambda, SQS, EventBridge), so costs scale with usage and are close to zero
-  when idle.
+  Lambda, SQS, EventBridge, S3), so costs scale with usage and are close to
+  zero when idle.
 * **You can extend it.** PL8 publishes lifecycle events to an EventBridge bus
   in your account, which you can route to your own workflows.
 
