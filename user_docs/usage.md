@@ -168,7 +168,9 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
   get_issue_attachment` returns it. The download is written to a temp file
   beside `PATH` and renamed into place, so an interrupted download never leaves
   a half-written file where your file should be; pass `--force` to overwrite an
-  existing one.
+  existing one. An attachment whose upload never finished has no download URL —
+  PL8 doesn't issue one for a file that isn't there — so `attachment get`
+  refuses it instead of writing you an empty file.
 * **Waiting for comments.** `pl8 comment wait` returns when new comments appear
   on an Issue. It polls from your machine rather than blocking in AWS, because
   a Lambda that sat waiting would bill you for the wall clock it spent doing
@@ -212,8 +214,8 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
   Issue, and the comment it is tied to is fixed when you create it.
 * An attachment counts as an attachment only once its upload has finished.
   `pl8 attachment add` finishes it for you; an upload that died part way leaves
-  a `PENDING` attachment, which is listed, is counted nowhere, and is cleaned
-  up with its bytes about a day later.
+  a `PENDING` attachment, which is listed, is counted nowhere, can't be
+  downloaded, and is cleaned up with its bytes about a day later.
 * An attachment name is at most 128 characters and can't contain `"`, `\` or
   control characters, because PL8 puts the name in the filename header of the
   download. A content type must be bare, like `text/plain`: parameters such as

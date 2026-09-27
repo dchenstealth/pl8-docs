@@ -2,7 +2,7 @@
 type: UserGuide
 title: PL8 Setup
 description: Deploy PL8 to your own AWS account and install the CLI
-generated: { by: agent:claude-opus-5, at: 2026-09-22T00:00:00Z }
+generated: { by: agent:claude-opus-5, at: 2026-09-26T00:00:00Z }
 ---
 
 # Setup
@@ -119,6 +119,15 @@ This creates:
     lifecycle updates in the background
 * An EventBridge bus, `prod-pl8-events`, plus SQS queues with dead-letter
   queues and CloudWatch alarms on those dead-letter queues
+* An S3 bucket, which holds the files attached to Issues. Attachment rows live
+  in the table with everything else; only the bytes are here.
+
+The attachment bucket has versioning enabled, with noncurrent versions expiring
+after 7 days. Deleting an attachment, or deleting an Issue and taking its
+attachments with it, therefore does not stop you paying for those bytes
+immediately: the old version is kept for up to a week first. It is worth knowing
+before you read a cost graph, and it is also a week in which an accidental
+delete can still be recovered from the bucket.
 
 ### Verify
 

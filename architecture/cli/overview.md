@@ -33,10 +33,13 @@ for (see [storage](../backend/storage.md)).
 
 `attachment get` fetches the object through a presigned URL and writes it to the
 path the caller named, via a temp file in the same directory and a rename, so a
-failed download cannot leave a truncated file where a whole one is expected. It
-never prints the URL. Stdout is the command's JSON envelope, and that URL is a
-five-minute bearer token for the object: printing it would put a live credential
-into scrollback, CI logs and agent transcripts.
+failed download cannot leave a truncated file where a whole one is expected. The
+URL is what it keys off: pl8-interface returns one only for an UPLOADED
+attachment (see [storage](../backend/storage.md)), so a response with no
+`download_url` is the CLI's signal to refuse rather than a status it has to
+interpret. It never prints the URL. Stdout is the command's JSON envelope, and
+that URL is a five-minute bearer token for the object: printing it would put a
+live credential into scrollback, CI logs and agent transcripts.
 
 `comment wait` polls pl8-interface on an interval until new comments appear or
 the caller's deadline passes. It polls from the client because a Lambda that

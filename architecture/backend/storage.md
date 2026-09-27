@@ -118,9 +118,10 @@ signed target may sit around unused, not how long a transfer may run, and the
 case re-signing answers is a URL that expired between attempts.
 
 ## Downloading
-Reading an attachment is one step: PL8 signs a GET for the attachment's key and
-returns the URL. The bytes come from S3 directly, for the same reason they go to
-S3 directly — a 100MB response has no business passing through a Lambda.
+Reading an UPLOADED attachment is one step: PL8 signs a GET for the attachment's
+key and returns the URL alongside the row. The bytes come from S3 directly, for
+the same reason they go to S3 directly — a 100MB response has no business
+passing through a Lambda.
 
 Rules:
 * A signed GET MUST expire 5 minutes after it is signed, as a POST does.
@@ -128,9 +129,18 @@ Rules:
   `ResponseContentDisposition`, so the file arrives named as whoever attached it
   named it rather than as a UUID. The name in that header is the validated name
   from the row (see [Keys](#keys)).
-* A signed GET MAY be issued for an attachment in any status, but PENDING is not
-  a promise of bytes: the URL is for a key that may hold nothing, and S3 answers
-  404. A caller that wants a file it can rely on fetches an UPLOADED one.
+* A signed GET MUST NOT be issued for an attachment that is not UPLOADED.
+  Reading a PENDING attachment returns the row and no download URL at all. PL8
+  does not hand out a URL it already knows will 404: a URL is an assertion that
+  there is something at the other end of it, and for a PENDING attachment there
+  is nothing to assert.
+* The absence of the URL MUST be what tells a caller there are no bytes yet, and
+  it MUST be safe to treat it that way. A caller with a row and no URL knows it
+  cannot download, without reading the status and reasoning about what each
+  status implies, which is exactly how the CLI's `attachment get` decides to
+  refuse (see [cli](../cli/overview.md)). The URL is optional on the response by
+  design rather than by accident: it is a capability, and an absent capability
+  is a denied one.
 
 ## Presigned URLs are not authenticated claims
 A presigned URL is a bearer token. It carries a signature made with the signing

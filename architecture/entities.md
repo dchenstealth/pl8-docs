@@ -269,6 +269,10 @@ against S3 and writes the size and content type S3 reports back onto the row.
   alone, and MUST fail once the attachment is UPLOADED (see
   [storage](backend/storage.md)). A new target is a new token for the same
   intention, not a new attachment and not an amendment to one.
+* A PENDING attachment MUST NOT be given a download URL. Reading one returns the
+  row and nothing to fetch it with, and that absence is how a caller learns
+  there are no bytes yet — PL8 does not sign a URL it knows will 404 (see
+  [storage](backend/storage.md)).
 
 The one-way transition is not a product opinion about what people may do with a
 file; it is what makes `num_attachments` correct. Confirm arrives at least once
