@@ -55,6 +55,9 @@ Rules:
 * A presigned POST MUST carry the declared size as an exact
   content-length-range, the same value as both bounds, rather than a range up to
   the limit. S3 then refuses anything but the file the caller described.
+* A presigned POST MUST carry the declared content type as an exact
+  `Content-Type` condition, so the object is stored with the type the row
+  records and every download is served with it.
 * The declared size MUST be at most 100MB, refused at initiate so an oversized
   upload never has a target.
 * A presigned POST MUST expire 5 minutes after signing. That bounds how long an
@@ -96,6 +99,8 @@ Rules:
 * A signed GET MUST carry the attachment's name in a signed
   `ResponseContentDisposition`, so the file arrives named as whoever attached it
   named it rather than as a UUID.
+* A name MUST be validated at creation to exclude control characters, `"` and
+  `\`, since it reaches that header and those are what could break out of it.
 * A signed GET MUST NOT be issued for an attachment that is not UPLOADED.
   Reading a PENDING attachment returns the row and no URL at all; PL8 does not
   hand out a URL it knows will 404.
