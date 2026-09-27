@@ -2,7 +2,7 @@
 type: UserGuide
 title: PL8 Usage
 description: Use PL8 from the CLI, from agents, and through its events
-generated: { by: agent:claude-opus-5, at: 2026-09-26T00:00:00Z }
+generated: { by: agent:claude-opus-5, at: 2026-09-27T00:00:00Z }
 ---
 
 # Usage
@@ -98,7 +98,7 @@ pl8 space delete SPACE_ID
 pl8 issue create --title TITLE --description TEXT [--status STATUS]
 pl8 issue get ISSUE
 pl8 issue list --status STATUS
-pl8 issue update ISSUE --title TITLE --description TEXT [--if-version N]
+pl8 issue update ISSUE [--title TITLE] [--description TEXT] [--if-version N]
 pl8 issue transition ISSUE --status STATUS [--if-version N]
 pl8 issue delete ISSUE
 
@@ -147,9 +147,10 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
   comments and `pl8 attachment list` its attachments, or one comment's
   attachments with `--comment`. Both list oldest first, and both take `--desc`
   for newest first.
-* **Updates.** `update` replaces both the name or title and the description,
-  so pass both. `comment update` replaces the body. An update never changes
-  the creator.
+* **Updates.** `space update` replaces both the name and the description, so
+  pass both. `issue update` replaces the title, the description, or both, and
+  leaves whichever you omit unchanged. `comment update` replaces the body. An
+  update never changes the creator.
 * **Attachments.** `pl8 attachment add` is one command for what is really
   three steps: PL8 reserves the attachment and signs an upload, the CLI sends
   the file to S3, and PL8 marks it uploaded. The size is taken from the file
